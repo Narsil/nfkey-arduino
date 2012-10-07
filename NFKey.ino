@@ -18,11 +18,15 @@
 #endif
 
 //Skip Ndef headers
+//50 For Mifare UltraLight
+#define OFFSET 50
+//Or 11 for Mifare Classic
 #define OFFSET 11
 
 //Define LEDS
-#define LED_GREEN 17
-#define LED_RED 18
+#define LED_GREEN 8
+#define LED_RED 7
+#define LOCKER 6
 
 //Define Buffer sizes for message
 #define ID_BUFFER_SIZE 32
@@ -44,7 +48,7 @@ void parse(char buf[], char id[ID_BUFFER_SIZE], int* start, int* stop, char extr
   int start_index = 0;
   int stop_index = 0;
   for(int i=0; i<4; i++){
-    for(int j=0;buf[index] != '\0' && buf[index] != ',' && index < READER_BUFFER_SIZE;index++,j++){
+    for(int j=0;buf[index] != '\0' && buf[index] != ',' && buf[index] != 0xFE && index < READER_BUFFER_SIZE;index++,j++){
       switch(segment){
       case 0: // ID segment
         if (index > ID_BUFFER_SIZE){
@@ -90,7 +94,7 @@ void parse(char buf[], char id[ID_BUFFER_SIZE], int* start, int* stop, char extr
   }
 } 
 
-boolean is_valid(char buf[]){
+boolean is_valid(char* buf){
   //Static to empty arrays before use
   static char id[ID_BUFFER_SIZE];
   int start=0, stop=0;
@@ -99,6 +103,9 @@ boolean is_valid(char buf[]){
   //TODO
   //current_time should be set in some other way
   int current_time = 0;
+  for(int i=0; i<256; i++){
+    Serial.print(buf[i]);
+  }
 
   parse(buf, id, &start, &stop, extra);
 
@@ -112,8 +119,9 @@ boolean is_valid(char buf[]){
 void setup(void) {
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_RED, OUTPUT);
+  pinMode(LOCKER, OUTPUT);
   Serial.begin(9600);
-  Serial.println("Hello!");
+  Serial.println("Hello NFKEY!");
 
   nfc.begin();
 
@@ -147,12 +155,13 @@ void loop(void) {
     Serial.print("Read card #"); 
     Serial.println(id);
 
-
     //read memory block 0x08
-    char buf[READER_BUFFER_SIZE];
+    static char buf[READER_BUFFER_SIZE];
     int counter = 0;
     boolean finish = false;
-    for (int j=0x04;j<0x20 && !finish;j++)
+    int j;
+    int endblock = 0x16;
+    for (j=0x04;j<endblock && !finish;j++)
     {
       uint8_t keys[]= {
         0xFF,0xFF,0xFF,0xFF,0xFF,0xFF                        };
@@ -165,13 +174,15 @@ void loop(void) {
           //if read operation is successful
           for(uint8_t i=0;i<16;i++)
           {
+            //print memory block
+            buf[counter] = block[i];
             //Data ends with FE character
             if (block[i] == 0xFE){
               finish=true;
+              Serial.println("\nFINISHED");
+              
               break; 
             }
-            //print memory block
-            buf[counter] = block[i];
             counter++;
             Serial.print(block[i],HEX);
             Serial.print(" ");
@@ -184,21 +195,29 @@ void loop(void) {
         Serial.println("Cannot authenticate.");
       }
     }
+    if (j == endblock){
+      finish=true;
+      // Set finish to true to say pass is invalid
+      Serial.println("Finished reading irregularly");
+    }
     buf[counter] = '\0';
     //Skip Ndef Header
-    char* buf2;
+    char *buf2;
     buf2 = buf + OFFSET;
-    Serial.println(buf2);
+    //static char buf2[READER_BUFFER_SIZE - OFFSET];
+    //memcpy(buf2, buf, READER_BUFFER_SIZE - OFFSET);
     if(finish){
       if(is_valid(buf2)){
         digitalWrite(LED_GREEN, HIGH);
         digitalWrite(LED_RED, LOW);
+        digitalWrite(LOCKER, HIGH);
       }
       else{
         digitalWrite(LED_GREEN, LOW);
         digitalWrite(LED_RED, HIGH);
       }
-      delay(2000);
+      delay(4000);
+      digitalWrite(LOCKER, LOW);
       digitalWrite(LED_GREEN, LOW);
       digitalWrite(LED_RED, LOW);
     }
